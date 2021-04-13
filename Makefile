@@ -96,4 +96,4 @@ $(RECORDER): $(RECORDER_SRC)
 	npx webpack --config webpack.debug.js --output-library Recorder --entry $(RECORDER_SRC) --output-filename $(RECORDER_FILENAME)
 
 $(WAVE_WORKER): $(WAVE_WORKER_SRC)
-	npx webpack --entry $(WAVE_WORKER_SRC) --output-filename $(WAVE_WORKER_FILENAME)
+	npx webpack --config webpack.debug.js --entry $(WAVE_WORKER_SRC) --output-filename $(WAVE_WORKER_FILENAME)
