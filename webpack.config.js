@@ -1,7 +1,12 @@
- module.exports = {
+const path = require('path');
+
+module.exports = {
+  mode: 'production',
   output: {
     globalObject: 'typeof self !== \'undefined\' ? self : this',
-    libraryTarget: 'umd'
+    library: 'test',
+    libraryTarget: 'umd',
+    path: path.resolve(__dirname, "dist")
   },
   module: {
     rules: [
