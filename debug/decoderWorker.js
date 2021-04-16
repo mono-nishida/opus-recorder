@@ -17,14 +17,6 @@ var Module = typeof Module !== 'undefined' ? Module : {};
 
 // --pre-jses are emitted after the Module integration code, so that they can
 // refer to Module (if they choose; they can also define Module)
-/*
- * ATTENTION: The "eval" devtool has been used (maybe by default in mode: "development").
- * This devtool is neither made for production nor for readable output files.
- * It uses "eval()" calls to create a separate source file in the browser devtools.
- * If you are trying to read the output file, select a different devtool (https://webpack.js.org/configuration/devtool/)
- * or disable the default devtool with "devtool: false".
- * If you are looking for production-ready output files, see mode: "production" (https://webpack.js.org/configuration/mode/).
- */
 (function webpackUniversalModuleDefinition(root, factory) {
 	if(typeof exports === 'object' && typeof module === 'object')
 		module.exports = factory();
@@ -45,7 +37,234 @@ return /******/ (() => { // webpackBootstrap
   \******************************/
 /***/ ((module, __unused_webpack_exports, __webpack_require__) => {
 
-eval("\n\nvar decoder;\nvar mainReadyResolve;\nvar mainReady = new Promise(function (resolve) {\n  mainReadyResolve = resolve;\n});\n\n__webpack_require__.g['onmessage'] = function (e) {\n  mainReady.then(function () {\n    switch (e['data']['command']) {\n      case 'decode':\n        if (decoder) {\n          decoder.decode(e['data']['pages']);\n        }\n\n        break;\n\n      case 'done':\n        if (decoder) {\n          decoder.sendLastBuffer();\n          __webpack_require__.g['close']();\n        }\n\n        break;\n\n      case 'init':\n        decoder = new OggOpusDecoder(e['data'], Module);\n        break;\n\n      default: // Ignore any unknown commands and continue recieving commands\n\n    }\n  });\n};\n\nvar OggOpusDecoder = function OggOpusDecoder(config, Module) {\n  if (!Module) {\n    throw new Error('Module with exports required to initialize a decoder instance');\n  }\n\n  this.mainReady = mainReady; // Expose for unit testing\n\n  this.config = Object.assign({\n    bufferLength: 4096,\n    // Define size of outgoing buffer\n    decoderSampleRate: 48000,\n    // Desired decoder sample rate.\n    outputBufferSampleRate: 48000,\n    // Desired output sample rate. Audio will be resampled\n    resampleQuality: 3 // Value between 0 and 10 inclusive. 10 being highest quality.\n\n  }, config);\n  this._opus_decoder_create = Module._opus_decoder_create;\n  this._opus_decoder_destroy = Module._opus_decoder_destroy;\n  this._speex_resampler_process_interleaved_float = Module._speex_resampler_process_interleaved_float;\n  this._speex_resampler_init = Module._speex_resampler_init;\n  this._speex_resampler_destroy = Module._speex_resampler_destroy;\n  this._opus_decode_float = Module._opus_decode_float;\n  this._free = Module._free;\n  this._malloc = Module._malloc;\n  this.HEAPU8 = Module.HEAPU8;\n  this.HEAP32 = Module.HEAP32;\n  this.HEAPF32 = Module.HEAPF32;\n  this.outputBuffers = [];\n};\n\nOggOpusDecoder.prototype.decode = function (typedArray) {\n  var dataView = new DataView(typedArray.buffer);\n  this.getPageBoundaries(dataView).forEach(function (pageStart) {\n    var headerType = dataView.getUint8(pageStart + 5, true);\n    var pageIndex = dataView.getUint32(pageStart + 18, true); // Beginning of stream\n\n    if (headerType & 2) {\n      this.numberOfChannels = dataView.getUint8(pageStart + 37, true);\n      this.init();\n    } // Decode page\n\n\n    if (pageIndex > 1) {\n      var segmentTableLength = dataView.getUint8(pageStart + 26, true);\n      var segmentTableIndex = pageStart + 27 + segmentTableLength;\n\n      for (var i = 0; i < segmentTableLength; i++) {\n        var packetLength = dataView.getUint8(pageStart + 27 + i, true);\n        this.decoderBuffer.set(typedArray.subarray(segmentTableIndex, segmentTableIndex += packetLength), this.decoderBufferIndex);\n        this.decoderBufferIndex += packetLength;\n\n        if (packetLength < 255) {\n          var outputSampleLength = this._opus_decode_float(this.decoder, this.decoderBufferPointer, this.decoderBufferIndex, this.decoderOutputPointer, this.decoderOutputMaxLength, 0);\n\n          var resampledLength = Math.ceil(outputSampleLength * this.config.outputBufferSampleRate / this.config.decoderSampleRate);\n          this.HEAP32[this.decoderOutputLengthPointer >> 2] = outputSampleLength;\n          this.HEAP32[this.resampleOutputLengthPointer >> 2] = resampledLength;\n\n          this._speex_resampler_process_interleaved_float(this.resampler, this.decoderOutputPointer, this.decoderOutputLengthPointer, this.resampleOutputBufferPointer, this.resampleOutputLengthPointer);\n\n          this.sendToOutputBuffers(this.HEAPF32.subarray(this.resampleOutputBufferPointer >> 2, (this.resampleOutputBufferPointer >> 2) + resampledLength * this.numberOfChannels));\n          this.decoderBufferIndex = 0;\n        }\n      } // End of stream\n\n\n      if (headerType & 4) {\n        this.sendLastBuffer();\n      }\n    }\n  }, this);\n};\n\nOggOpusDecoder.prototype.getPageBoundaries = function (dataView) {\n  var pageBoundaries = [];\n\n  for (var i = 0; i < dataView.byteLength - 32; i++) {\n    if (dataView.getUint32(i, true) == 1399285583) {\n      // Capture Pattern starts all page headers 'OggS'\n      pageBoundaries.push(i);\n    }\n  }\n\n  return pageBoundaries;\n};\n\nOggOpusDecoder.prototype.init = function () {\n  this.resetOutputBuffers();\n  this.initCodec();\n  this.initResampler();\n};\n\nOggOpusDecoder.prototype.initCodec = function () {\n  if (this.decoder) {\n    this._opus_decoder_destroy(this.decoder);\n\n    this._free(this.decoderBufferPointer);\n\n    this._free(this.decoderOutputLengthPointer);\n\n    this._free(this.decoderOutputPointer);\n  }\n\n  var errReference = this._malloc(4);\n\n  this.decoder = this._opus_decoder_create(this.config.decoderSampleRate, this.numberOfChannels, errReference);\n\n  this._free(errReference);\n\n  this.decoderBufferMaxLength = 4000;\n  this.decoderBufferPointer = this._malloc(this.decoderBufferMaxLength);\n  this.decoderBuffer = this.HEAPU8.subarray(this.decoderBufferPointer, this.decoderBufferPointer + this.decoderBufferMaxLength);\n  this.decoderBufferIndex = 0;\n  this.decoderOutputLengthPointer = this._malloc(4);\n  this.decoderOutputMaxLength = this.config.decoderSampleRate * this.numberOfChannels * 120 / 1000; // Max 120ms frame size\n\n  this.decoderOutputPointer = this._malloc(this.decoderOutputMaxLength * 4); // 4 bytes per sample\n};\n\nOggOpusDecoder.prototype.initResampler = function () {\n  if (this.resampler) {\n    this._speex_resampler_destroy(this.resampler);\n\n    this._free(this.resampleOutputLengthPointer);\n\n    this._free(this.resampleOutputBufferPointer);\n  }\n\n  var errLocation = this._malloc(4);\n\n  this.resampler = this._speex_resampler_init(this.numberOfChannels, this.config.decoderSampleRate, this.config.outputBufferSampleRate, this.config.resampleQuality, errLocation);\n\n  this._free(errLocation);\n\n  this.resampleOutputLengthPointer = this._malloc(4);\n  this.resampleOutputMaxLength = Math.ceil(this.decoderOutputMaxLength * this.config.outputBufferSampleRate / this.config.decoderSampleRate);\n  this.resampleOutputBufferPointer = this._malloc(this.resampleOutputMaxLength * 4); // 4 bytes per sample\n};\n\nOggOpusDecoder.prototype.resetOutputBuffers = function () {\n  this.outputBuffers = [];\n  this.outputBufferArrayBuffers = [];\n  this.outputBufferIndex = 0;\n\n  for (var i = 0; i < this.numberOfChannels; i++) {\n    this.outputBuffers.push(new Float32Array(this.config.bufferLength));\n    this.outputBufferArrayBuffers.push(this.outputBuffers[i].buffer);\n  }\n};\n\nOggOpusDecoder.prototype.sendLastBuffer = function () {\n  this.sendToOutputBuffers(new Float32Array((this.config.bufferLength - this.outputBufferIndex) * this.numberOfChannels));\n  __webpack_require__.g['postMessage'](null);\n};\n\nOggOpusDecoder.prototype.sendToOutputBuffers = function (mergedBuffers) {\n  var dataIndex = 0;\n  var mergedBufferLength = mergedBuffers.length / this.numberOfChannels;\n\n  while (dataIndex < mergedBufferLength) {\n    var amountToCopy = Math.min(mergedBufferLength - dataIndex, this.config.bufferLength - this.outputBufferIndex);\n\n    if (this.numberOfChannels === 1) {\n      this.outputBuffers[0].set(mergedBuffers.subarray(dataIndex, dataIndex + amountToCopy), this.outputBufferIndex);\n    } // Deinterleave\n    else {\n        for (var i = 0; i < amountToCopy; i++) {\n          this.outputBuffers.forEach(function (buffer, channelIndex) {\n            buffer[this.outputBufferIndex + i] = mergedBuffers[(dataIndex + i) * this.numberOfChannels + channelIndex];\n          }, this);\n        }\n      }\n\n    dataIndex += amountToCopy;\n    this.outputBufferIndex += amountToCopy;\n\n    if (this.outputBufferIndex == this.config.bufferLength) {\n      __webpack_require__.g['postMessage'](this.outputBuffers, this.outputBufferArrayBuffers);\n      this.resetOutputBuffers();\n    }\n  }\n};\n\nif (!Module) {\n  Module = {};\n}\n\nModule['mainReady'] = mainReady;\nModule['OggOpusDecoder'] = OggOpusDecoder;\nModule['onRuntimeInitialized'] = mainReadyResolve;\nmodule.exports = Module;\n\n//# sourceURL=webpack://test.DecoderWorker/./src/decoderWorker.js?");
+
+
+var decoder;
+var mainReadyResolve;
+var mainReady = new Promise(function (resolve) {
+  mainReadyResolve = resolve;
+});
+
+__webpack_require__.g['onmessage'] = function (e) {
+  mainReady.then(function () {
+    switch (e['data']['command']) {
+      case 'decode':
+        if (decoder) {
+          decoder.decode(e['data']['pages']);
+        }
+
+        break;
+
+      case 'done':
+        if (decoder) {
+          decoder.sendLastBuffer();
+          __webpack_require__.g['close']();
+        }
+
+        break;
+
+      case 'init':
+        decoder = new OggOpusDecoder(e['data'], Module);
+        break;
+
+      default: // Ignore any unknown commands and continue recieving commands
+
+    }
+  });
+};
+
+var OggOpusDecoder = function OggOpusDecoder(config, Module) {
+  if (!Module) {
+    throw new Error('Module with exports required to initialize a decoder instance');
+  }
+
+  this.mainReady = mainReady; // Expose for unit testing
+
+  this.config = Object.assign({
+    bufferLength: 4096,
+    // Define size of outgoing buffer
+    decoderSampleRate: 48000,
+    // Desired decoder sample rate.
+    outputBufferSampleRate: 48000,
+    // Desired output sample rate. Audio will be resampled
+    resampleQuality: 3 // Value between 0 and 10 inclusive. 10 being highest quality.
+
+  }, config);
+  this._opus_decoder_create = Module._opus_decoder_create;
+  this._opus_decoder_destroy = Module._opus_decoder_destroy;
+  this._speex_resampler_process_interleaved_float = Module._speex_resampler_process_interleaved_float;
+  this._speex_resampler_init = Module._speex_resampler_init;
+  this._speex_resampler_destroy = Module._speex_resampler_destroy;
+  this._opus_decode_float = Module._opus_decode_float;
+  this._free = Module._free;
+  this._malloc = Module._malloc;
+  this.HEAPU8 = Module.HEAPU8;
+  this.HEAP32 = Module.HEAP32;
+  this.HEAPF32 = Module.HEAPF32;
+  this.outputBuffers = [];
+};
+
+OggOpusDecoder.prototype.decode = function (typedArray) {
+  var dataView = new DataView(typedArray.buffer);
+  this.getPageBoundaries(dataView).forEach(function (pageStart) {
+    var headerType = dataView.getUint8(pageStart + 5, true);
+    var pageIndex = dataView.getUint32(pageStart + 18, true); // Beginning of stream
+
+    if (headerType & 2) {
+      this.numberOfChannels = dataView.getUint8(pageStart + 37, true);
+      this.init();
+    } // Decode page
+
+
+    if (pageIndex > 1) {
+      var segmentTableLength = dataView.getUint8(pageStart + 26, true);
+      var segmentTableIndex = pageStart + 27 + segmentTableLength;
+
+      for (var i = 0; i < segmentTableLength; i++) {
+        var packetLength = dataView.getUint8(pageStart + 27 + i, true);
+        this.decoderBuffer.set(typedArray.subarray(segmentTableIndex, segmentTableIndex += packetLength), this.decoderBufferIndex);
+        this.decoderBufferIndex += packetLength;
+
+        if (packetLength < 255) {
+          var outputSampleLength = this._opus_decode_float(this.decoder, this.decoderBufferPointer, this.decoderBufferIndex, this.decoderOutputPointer, this.decoderOutputMaxLength, 0);
+
+          var resampledLength = Math.ceil(outputSampleLength * this.config.outputBufferSampleRate / this.config.decoderSampleRate);
+          this.HEAP32[this.decoderOutputLengthPointer >> 2] = outputSampleLength;
+          this.HEAP32[this.resampleOutputLengthPointer >> 2] = resampledLength;
+
+          this._speex_resampler_process_interleaved_float(this.resampler, this.decoderOutputPointer, this.decoderOutputLengthPointer, this.resampleOutputBufferPointer, this.resampleOutputLengthPointer);
+
+          this.sendToOutputBuffers(this.HEAPF32.subarray(this.resampleOutputBufferPointer >> 2, (this.resampleOutputBufferPointer >> 2) + resampledLength * this.numberOfChannels));
+          this.decoderBufferIndex = 0;
+        }
+      } // End of stream
+
+
+      if (headerType & 4) {
+        this.sendLastBuffer();
+      }
+    }
+  }, this);
+};
+
+OggOpusDecoder.prototype.getPageBoundaries = function (dataView) {
+  var pageBoundaries = [];
+
+  for (var i = 0; i < dataView.byteLength - 32; i++) {
+    if (dataView.getUint32(i, true) == 1399285583) {
+      // Capture Pattern starts all page headers 'OggS'
+      pageBoundaries.push(i);
+    }
+  }
+
+  return pageBoundaries;
+};
+
+OggOpusDecoder.prototype.init = function () {
+  this.resetOutputBuffers();
+  this.initCodec();
+  this.initResampler();
+};
+
+OggOpusDecoder.prototype.initCodec = function () {
+  if (this.decoder) {
+    this._opus_decoder_destroy(this.decoder);
+
+    this._free(this.decoderBufferPointer);
+
+    this._free(this.decoderOutputLengthPointer);
+
+    this._free(this.decoderOutputPointer);
+  }
+
+  var errReference = this._malloc(4);
+
+  this.decoder = this._opus_decoder_create(this.config.decoderSampleRate, this.numberOfChannels, errReference);
+
+  this._free(errReference);
+
+  this.decoderBufferMaxLength = 4000;
+  this.decoderBufferPointer = this._malloc(this.decoderBufferMaxLength);
+  this.decoderBuffer = this.HEAPU8.subarray(this.decoderBufferPointer, this.decoderBufferPointer + this.decoderBufferMaxLength);
+  this.decoderBufferIndex = 0;
+  this.decoderOutputLengthPointer = this._malloc(4);
+  this.decoderOutputMaxLength = this.config.decoderSampleRate * this.numberOfChannels * 120 / 1000; // Max 120ms frame size
+
+  this.decoderOutputPointer = this._malloc(this.decoderOutputMaxLength * 4); // 4 bytes per sample
+};
+
+OggOpusDecoder.prototype.initResampler = function () {
+  if (this.resampler) {
+    this._speex_resampler_destroy(this.resampler);
+
+    this._free(this.resampleOutputLengthPointer);
+
+    this._free(this.resampleOutputBufferPointer);
+  }
+
+  var errLocation = this._malloc(4);
+
+  this.resampler = this._speex_resampler_init(this.numberOfChannels, this.config.decoderSampleRate, this.config.outputBufferSampleRate, this.config.resampleQuality, errLocation);
+
+  this._free(errLocation);
+
+  this.resampleOutputLengthPointer = this._malloc(4);
+  this.resampleOutputMaxLength = Math.ceil(this.decoderOutputMaxLength * this.config.outputBufferSampleRate / this.config.decoderSampleRate);
+  this.resampleOutputBufferPointer = this._malloc(this.resampleOutputMaxLength * 4); // 4 bytes per sample
+};
+
+OggOpusDecoder.prototype.resetOutputBuffers = function () {
+  this.outputBuffers = [];
+  this.outputBufferArrayBuffers = [];
+  this.outputBufferIndex = 0;
+
+  for (var i = 0; i < this.numberOfChannels; i++) {
+    this.outputBuffers.push(new Float32Array(this.config.bufferLength));
+    this.outputBufferArrayBuffers.push(this.outputBuffers[i].buffer);
+  }
+};
+
+OggOpusDecoder.prototype.sendLastBuffer = function () {
+  this.sendToOutputBuffers(new Float32Array((this.config.bufferLength - this.outputBufferIndex) * this.numberOfChannels));
+  __webpack_require__.g['postMessage'](null);
+};
+
+OggOpusDecoder.prototype.sendToOutputBuffers = function (mergedBuffers) {
+  var dataIndex = 0;
+  var mergedBufferLength = mergedBuffers.length / this.numberOfChannels;
+
+  while (dataIndex < mergedBufferLength) {
+    var amountToCopy = Math.min(mergedBufferLength - dataIndex, this.config.bufferLength - this.outputBufferIndex);
+
+    if (this.numberOfChannels === 1) {
+      this.outputBuffers[0].set(mergedBuffers.subarray(dataIndex, dataIndex + amountToCopy), this.outputBufferIndex);
+    } // Deinterleave
+    else {
+        for (var i = 0; i < amountToCopy; i++) {
+          this.outputBuffers.forEach(function (buffer, channelIndex) {
+            buffer[this.outputBufferIndex + i] = mergedBuffers[(dataIndex + i) * this.numberOfChannels + channelIndex];
+          }, this);
+        }
+      }
+
+    dataIndex += amountToCopy;
+    this.outputBufferIndex += amountToCopy;
+
+    if (this.outputBufferIndex == this.config.bufferLength) {
+      __webpack_require__.g['postMessage'](this.outputBuffers, this.outputBufferArrayBuffers);
+      this.resetOutputBuffers();
+    }
+  }
+};
+
+if (!Module) {
+  Module = {};
+}
+
+Module['mainReady'] = mainReady;
+Module['OggOpusDecoder'] = OggOpusDecoder;
+Module['onRuntimeInitialized'] = mainReadyResolve;
+module.exports = Module;
 
 /***/ })
 
@@ -99,6 +318,7 @@ eval("\n\nvar decoder;\nvar mainReadyResolve;\nvar mainReady = new Promise(funct
 /******/ })()
 ;
 });
+//# sourceMappingURL=decoderWorker.js.map
 
 
 // Sometimes an existing Module object exists with properties
