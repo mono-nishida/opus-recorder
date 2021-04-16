@@ -95,11 +95,11 @@ $(LIBOPUS_ENCODER): $(LIBOPUS_ENCODER_SRC) $(LIBOPUS_OBJ) $(LIBSPEEXDSP_OBJ)
 	emcc -o $@ $(EMCC_OPTS) -s BINARYEN_ASYNC_COMPILATION=0 -s SINGLE_FILE=1 -g3 -s EXPORTED_FUNCTIONS=$(DEFAULT_EXPORTS),$(LIBOPUS_ENCODER_EXPORTS),$(LIBSPEEXDSP_EXPORTS) --post-js $(LIBOPUS_ENCODER_SRC) $(LIBOPUS_OBJ) $(LIBSPEEXDSP_OBJ)
 
 $(LIBOPUS_DECODER): $(LIBOPUS_DECODER_SRC) $(LIBOPUS_OBJ) $(LIBSPEEXDSP_OBJ)
-	npx webpack -d source-map --config webpack.debug.js --output-library DecoderWorker --entry $(LIBOPUS_DECODER_SRC) --output-filename $(LIBOPUS_DECODER_FILENAME)
+	npx webpack --config webpack.debug.js --output-library DecoderWorker --entry $(LIBOPUS_DECODER_SRC) --output-filename $(LIBOPUS_DECODER_FILENAME)
 	emcc -o $@ $(EMCC_OPTS) -g3 -s EXPORTED_FUNCTIONS=$(DEFAULT_EXPORTS),$(LIBOPUS_DECODER_EXPORTS),$(LIBSPEEXDSP_EXPORTS) --pre-js $@ $(LIBOPUS_OBJ) $(LIBSPEEXDSP_OBJ)
 
 $(RECORDER): $(RECORDER_SRC)
-	npx webpack -d source-map --config webpack.debug.js --output-library Recorder --entry $(RECORDER_SRC) --output-filename $(RECORDER_FILENAME)
+	npx webpack --config webpack.debug.js --output-library Recorder --entry $(RECORDER_SRC) --output-filename $(RECORDER_FILENAME)
 
 $(WAVE_WORKER): $(WAVE_WORKER_SRC)
-	npx webpack -d source-map --config webpack.debug.js --entry $(WAVE_WORKER_SRC) --output-filename $(WAVE_WORKER_FILENAME)
+	npx webpack --config webpack.debug.js --entry $(WAVE_WORKER_SRC) --output-filename $(WAVE_WORKER_FILENAME)
