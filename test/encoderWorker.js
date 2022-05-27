@@ -61,8 +61,8 @@ describe('encoderWorker', function() {
     expect(encoder.config).to.have.property('maxFramesPerPage', 40);
     expect(encoder.config).to.have.property('encoderApplication', 2049);
     expect(encoder.config).to.have.property('encoderFrameSize', 20);
-    expect(encoder.config).to.have.property('resampleQuality', 3);
-    expect(encoder.config).to.have.property('originalSampleRate', 44100);
+    expect(encoder.config).to.have.property('resampleQuality', 5);
+    expect(encoder.config).to.have.property('originalSampleRate', 48000);
   });
 
   it('should initialize encoder', function () {
@@ -72,14 +72,14 @@ describe('encoderWorker', function() {
 
   it('should configure encoderBitRate', function () {
     const encoder = getEncoder({
-      encoderBitRate: 16000
+      encoderBitRate: 32000
     });
     expect(_opus_encoder_ctl_spy).to.have.been.calledWith(encoder.encoder, 4002, sinon.match.any);
   });
 
   it('should configure complexity', function () {
     const encoder = getEncoder({
-      encoderComplexity: 10
+      encoderComplexity: 3
     });
     expect(_opus_encoder_ctl_spy).to.have.been.calledWith(encoder.encoder, 4010, sinon.match.any)
   });
@@ -89,7 +89,7 @@ describe('encoderWorker', function() {
     const message = encoder.generateIdPage();
     var pageData = getPacket(message.page);
     var dataView = new DataView(pageData.buffer);
-    expect(dataView.getUint32(12, true)).to.equal(44100);
+    expect(dataView.getUint32(12, true)).to.equal(48000);
   });
 
   it('should override input sample rate field', function () {
@@ -199,7 +199,7 @@ describe('encoderWorker', function() {
       maxFramesPerPage: value,
       encoderFrameSize: testingFrameSize,
       encoderSampleRate: 48000,
-      originalSampleRate: 44100
+      originalSampleRate: 48000
     };
     return getEncoder(options);
   }

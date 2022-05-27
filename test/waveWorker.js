@@ -13,17 +13,17 @@ describe('waveWorker', function() {
 
   it('should throw an error if unsupported waveBitDepth value specified', function () {
     expect(WavePCM.bind(WavePCM, {
-      wavSampleRate: 44100,
+      wavSampleRate: 48000,
       wavBitDepth: 40
     })).to.throw('Only 8, 16, 24 and 32 bits per sample are supported');
   });
 
   it('should initialize standard config', function () {
     var wavPCM = new WavePCM({
-      wavSampleRate: 44100
+      wavSampleRate: 48000
     });
 
-    expect(wavPCM).to.have.property('sampleRate', 44100);
+    expect(wavPCM).to.have.property('sampleRate', 48000);
     expect(wavPCM).to.have.property('bitDepth', 16);
     expect(wavPCM).to.have.property('bytesPerSample', 2);
     expect(wavPCM).to.have.property('numberOfChannels', 1);
@@ -31,12 +31,12 @@ describe('waveWorker', function() {
 
   it('should initialize custom config', function () {
     var wavPCM = new WavePCM({
-      wavSampleRate: 44100,
+      wavSampleRate: 48000,
       wavBitDepth: 8,
       numberOfChannels: 2,
     });
 
-    expect(wavPCM).to.have.property('sampleRate', 44100);
+    expect(wavPCM).to.have.property('sampleRate', 48000);
     expect(wavPCM).to.have.property('bitDepth', 8);
     expect(wavPCM).to.have.property('bytesPerSample', 1);
     expect(wavPCM).to.have.property('numberOfChannels', 2);
@@ -44,7 +44,7 @@ describe('waveWorker', function() {
 
   it('should clamp float values to [-1,1]', function () {
     var wavPCM = new WavePCM({
-      wavSampleRate: 44100,
+      wavSampleRate: 48000,
       wavBitDepth: 32
     });
 
@@ -56,7 +56,7 @@ describe('waveWorker', function() {
 
   it('should convert values to be in valid 32bit range', function () {
     var wavPCM = new WavePCM({
-      wavSampleRate: 44100,
+      wavSampleRate: 48000,
       wavBitDepth: 32
     });
 
@@ -68,7 +68,7 @@ describe('waveWorker', function() {
 
   it('should convert values to be in valid 16bit range', function () {
     var wavPCM = new WavePCM({
-      wavSampleRate: 44100,
+      wavSampleRate: 48000,
       wavBitDepth: 16
     });
 
@@ -80,7 +80,7 @@ describe('waveWorker', function() {
 
   it('should convert values to be in valid 8bit range', function () {
     var wavPCM = new WavePCM({
-      wavSampleRate: 44100,
+      wavSampleRate: 48000,
       wavBitDepth: 8
     });
 

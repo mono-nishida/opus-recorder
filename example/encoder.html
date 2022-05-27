@@ -1,216 +1,217 @@
 <!DOCTYPE html>
 
 <html>
+
 <head>
-  <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
-  <title>Ogg Opus Encoder Example</title>
-  <script src="../dist/recorder.min.js"></script>
-  <style type='text/css'>
-    ul { list-style: none; }
-    li { margin: 1em; }
-    audio { display: block; }
-  </style>
+	<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+	<title>Ogg Opus Encoder Example</title>
+	<script src="dist/recorder.min.js"></script>
+	<style type='text/css'>
+	ul { list-style: none; }
+	    li { margin: 10px; }
+	    audio { display: block; }
+	</style>
 </head>
+
 <body>
 
-  <h1>Encoder example</h1>
-  <p>Before you enable monitoring, make sure to either plug in headphones or turn the volume down.</p>
-  <p>This ogg opus implementation does not support more than 2 channels.</p>
+	<h2>Options</h2>
 
-  <h2>Options</h2>
+	<div>
+		<label>monitorGain</label>
+		<input id="monitorGain" type="number" value="0" />
+	</div>
 
-  <div>
-    <label>monitorGain</label>
-    <input id="monitorGain" type="number" value="0" />
-  </div>
+	<div>
+		<label>recordingGain</label>
+		<input id="recordingGain" type="number" value="1" />
+	</div>
 
-  <div>
-    <label>recordingGain</label>
-    <input id="recordingGain" type="number" value="1" />
-  </div>
+	<div>
+		<label>numberOfChannels</label>
+		<input id="numberOfChannels" type="number" value="1" />
+	</div>
 
-  <div>
-    <label>numberOfChannels</label>
-    <input id="numberOfChannels" type="number" value="1" />
-  </div>
+	<div>
+		<label>encoderSampleRate</label>
+		<input id="encoderSampleRate" type="number" value="48000" />
+	</div>
 
-  <div>
-    <label>encoderSampleRate</label>
-    <input id="encoderSampleRate" type="number" value="48000" />
-  </div>
+	<div>
+		<label>encoderBitRate</label>
+		<input id="encoderBitRate" type="number" value="32000" />
+	</div>
 
-  <div>
-    <label>encoderBitRate</label>
-    <input id="encoderBitRate" type="number" value="" />
-  </div>
+	<div>
+		<label>encoderApplication</label>
+		<input id="encoderApplication" type="number" value="2049" />
+	</div>
 
-  <div>
-    <label>encoderApplication</label>
-    <input id="encoderApplication" type="number" value="" />
-  </div>
+	<div>
+		<label>encoderComplexity</label>
+		<input id="encoderComplexity" type="number" value="3" />
+	</div>
 
-  <div>
-    <label>encoderComplexity</label>
-    <input id="encoderComplexity" type="number" value="" />
-  </div>
+	<div>
+		<button id="init">Init recorder with options</button>
+	</div>
 
-  <div>
-    <button id="init">Init recorder with options</button>
-  </div>
+	<button id="start" disabled>Start</button>
+	<button id="closeButton" disabled>Close</button>
 
-  <h2>Recorder Commands</h2>
-  <button id="start" disabled>Start</button>
-  <button id="pause" disabled>Pause</button>
-  <button id="resume" disabled>Resume</button>
-  <button id="stopButton" disabled>Stop</button>
-  <button id="closeButton" disabled>Close</button>
+	<h2>Decode Data</h2>
+	<pre id="log"></pre>
 
-  <h2>Recordings</h2>
-  <ul id="recordingslist"></ul>
+	<script src="/socket.io/socket.io.js"></script>
+	<script src="https://code.jquery.com/jquery-1.11.1.js"></script>
+	<script>
+	let isfirst = true;
 
-  <h2>Log</h2>
-  <pre id="log"></pre>
+	function screenLogger(text, data) {
+		log.innerHTML += "\n" + text + " " + (data || '');
+	}
 
-  <script>
-    function screenLogger(text, data) {
-      log.innerHTML += "\n" + text + " " + (data || '');
-    }
+	function buf2hex(buffer) { // buffer is an ArrayBuffer
+		return [...new Uint8Array(buffer)]
+			.map(x => x.toString(16).padStart(2, '0'))
+			.join('');
+	}
 
-    if (!Recorder.isRecordingSupported()) {
-      screenLogger("Recording features are not supported in your browser.");
-    }
+	if (!Recorder.isRecordingSupported()) {
+		screenLogger("Recording features are not supported in your browser.");
+	} else {
+		init.addEventListener("click", function() {
+			init.disabled = true;
+			start.disabled = false;
+			monitorGain.disabled = true;
+			recordingGain.disabled = true;
+			numberOfChannels.disabled = true;
+			encoderBitRate.disabled = true;
+			encoderSampleRate.disabled = true;
+			closeButton.disabled = false;
+			encoderApplication.disabled = true;
+			encoderComplexity.disabled = true;
 
-    else {
-      init.addEventListener( "click", function(){
-      // (async function test() {
-        init.disabled = true;
-        start.disabled = false;
-        monitorGain.disabled = true;
-        recordingGain.disabled = true;
-        numberOfChannels.disabled = true;
-        encoderBitRate.disabled = true;
-        encoderSampleRate.disabled = true;
-        closeButton.disabled = false;
-        encoderApplication.disabled = true;
-        encoderComplexity.disabled = true;
+			let options = {
+				monitorGain: parseInt(monitorGain.value, 10),
+				recordingGain: parseInt(recordingGain.value, 10),
+				numberOfChannels: parseInt(numberOfChannels.value, 10),
+				encoderSampleRate: parseInt(encoderSampleRate.value, 10),
+				encoderPath: "../dist/encoderWorker.min.js"
+			};
 
-        // const AudioContext = window.AudioContext || window.webkitAudioContext;
-        // const sourceNode = await navigator.mediaDevices.getUserMedia({ audio : true }).then( ( stream ) => {
-        //   const context = new AudioContext();
-        //   return context.createMediaStreamSource( stream );
-        // });
+			if (encoderBitRate.value) {
+				Object.assign(options, {
+					encoderBitRate: parseInt(encoderBitRate.value, 10)
+				});
+			}
 
-        var options = {
-          monitorGain: parseInt(monitorGain.value, 10),
-          recordingGain: parseInt(recordingGain.value, 10),
-          numberOfChannels: parseInt(numberOfChannels.value, 10),
-          encoderSampleRate: parseInt(encoderSampleRate.value, 10),
-          encoderPath: "../dist/encoderWorker.min.js"
-          // sourceNode: sourceNode
-        };
+			if (encoderApplication.value) {
+				Object.assign(options, {
+					encoderApplication: parseInt(encoderApplication.value, 10)
+				});
+			}
 
-        if (encoderBitRate.value) {
-          Object.assign(options, { encoderBitRate: parseInt(encoderBitRate.value,10) });
-        }
+			if (encoderComplexity.value) {
+				Object.assign(options, {
+					encoderComplexity: parseInt(encoderComplexity.value, 3)
+				});
+			}
 
-        if (encoderApplication.value) {
-          Object.assign(options, { encoderApplication: parseInt(encoderApplication.value,10) });
-        }
+			let recorder = new Recorder(options);
 
-        if (encoderComplexity.value) {
-          Object.assign(options, { encoderComplexity: parseInt(encoderComplexity.value,10) });
-        }
+			let recorderStart = function() {
+				recorder.start().catch(function(e) {
+					screenLogger('Error encountered:', e.message);
+				});
+			};
+			let recorderClose = function() {
+				screenLogger('Recorder is closed');
+				recorder.close();
+				init.disabled = false;
 
-        var recorder = new Recorder(options);
+				start.disabled = true;
+				closeButton.disabled = true;
 
-        var recorderPause = function(){ recorder.pause(); };
-        var recorderStop = function(){ recorder.stop(); };
-        var recorderResume = function(){ recorder.resume(); };
-        var recorderStart = function(){ 
-          recorder.start().catch(function(e){
-            screenLogger('Error encountered:', e.message );
-          });
-        };
-        var recorderClose = function(){ 
-          screenLogger('Recorder is closed');
-          recorder.close();
-          init.disabled = false;
+				monitorGain.disabled = false;
+				recordingGain.disabled = false;
+				numberOfChannels.disabled = false;
+				encoderBitRate.disabled = false;
+				encoderSampleRate.disabled = false
+				encoderApplication.disabled = false;
+				encoderComplexity.disabled = false;
 
-          start.disabled = true;
-          pause.disabled = true;
-          stopButton.disabled = true;
-          closeButton.disabled = true;
+				start.removeEventListener("click", recorderStart);
+				closeButton.removeEventListener("click", recorderClose);
+			}
 
-          monitorGain.disabled = false;
-          recordingGain.disabled = false;
-          numberOfChannels.disabled = false;
-          encoderBitRate.disabled = false;
-          encoderSampleRate.disabled = false
-          encoderApplication.disabled = false;
-          encoderComplexity.disabled = false;
+			start.addEventListener("click", recorderStart);
+			closeButton.addEventListener("click", recorderClose);
 
-          resume.removeEventListener("click", recorderResume);
-          stopButton.removeEventListener("click", recorderStop);
-          pause.removeEventListener("click", recorderPause);
-          start.removeEventListener("click", recorderStart);
-          closeButton.removeEventListener("click", recorderClose);
-        }
+			recorder.onstart = function(e) {
+				screenLogger('Recorder is started');
+			};
 
-        pause.addEventListener( "click", recorderPause);
-        resume.addEventListener( "click", recorderResume);
-        stopButton.addEventListener( "click", recorderStop);
-        start.addEventListener( "click", recorderStart);
-        closeButton.addEventListener( "click", recorderClose);
+			let decoderWorker = new Worker('../dist/decoderWorker.min.js');
+			let desiredSampleRate = parseInt(encoderSampleRate.value, 10);
+			decoderWorker.postMessage({
+				command: 'init',
+				decoderSampleRate: desiredSampleRate,
+				outputBufferSampleRate: desiredSampleRate
+			});
 
-        recorder.onstart = function(e){
-          screenLogger('Recorder is started');
-          start.disabled = resume.disabled = true;
-          pause.disabled = stopButton.disabled = false;
-        };
+			let socket = io();
+			recorder.ondataavailable = function(typedArray) {
+				if (typedArray !== undefined) {
+					socket.emit('voice', typedArray);
+				} else {
+					screenLogger("---------");
+				}
+			};
 
-        recorder.onstop = function(e){
-          screenLogger('Recorder is stopped');
-          start.disabled = false;
-          pause.disabled = resume.disabled = stopButton.disabled = true;
-        };
+			socket.on('voice', function(obj) {
+				let receivedArray = new Uint8Array(Object.values(obj));
+				screenLogger(buf2hex(receivedArray));
+				decoderWorker.postMessage({
+					command: 'decode',
+					pages: receivedArray
+				}, [receivedArray.buffer]);
+			});
 
-        recorder.onpause = function(e){
-          screenLogger('Recorder is paused');
-          pause.disabled = start.disabled = true;
-          resume.disabled = stopButton.disabled = false;
-        };
+			decoderWorker.onmessage = function(e) {
+				// null means decoder is finished
+				if (e.data === null) {
+					decoderWorker.postMessage({
+						command: 'done'
+					});
+				} else {
+					play(e.data);
+				}
+			};
 
-        recorder.onresume = function(e){
-          screenLogger('Recorder is resuming');
-          start.disabled = resume.disabled = true;
-          pause.disabled = stopButton.disabled = false;
-        };
+		});
 
-        recorder.ondataavailable = function( typedArray ){
-          screenLogger('Data received');
-          var dataBlob = new Blob( [typedArray], { type: 'audio/ogg' } );
-          var fileName = new Date().toISOString() + ".opus";
-          var url = URL.createObjectURL( dataBlob );
 
-          var audio = document.createElement('audio');
-          audio.controls = true;
-          audio.src = url;
+	}
 
-          var link = document.createElement('a');
-          link.href = url;
-          link.download = fileName;
-          link.innerHTML = link.download;
+	let AudioContext = window.AudioContext || window.webkitAudioContext;
+	let audioCtx = new AudioContext();
 
-          var li = document.createElement('li');
-          li.appendChild(link);
-          li.appendChild(audio);
+	function play(waves) {
+		let waveData = waves[0];
+		let node = audioCtx.createBufferSource();
+		let buffer = audioCtx.createBuffer(1, waveData.length, encoderSampleRate.value);
+		let data = buffer.getChannelData(0);
+		for (let i = 0; i < waveData.length; i++) {
+			data[i] = waveData[i];
+		}
+		node.buffer = buffer;
+		node.loop = false;
+		node.connect(audioCtx.destination);
+		node.start(0);
+	};
 
-          recordingslist.appendChild(li);
-        };
-      });
-      // })();
-    }
-
-  </script>
+	</script>
 </body>
+
 </html>

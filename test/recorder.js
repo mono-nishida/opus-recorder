@@ -99,7 +99,7 @@ describe('Recorder', function(){
       disconnect: sinon.stub()
     });
 
-    global.AudioContext.prototype.sampleRate = 44100;
+    global.AudioContext.prototype.sampleRate = 48000;
     global.AudioContext.prototype.close = sinon.stub().resolves();
     global.AudioContext.prototype.audioWorklet = {
       addModule: sinon.stub().resolves()
@@ -156,7 +156,7 @@ describe('Recorder', function(){
       connect: sinon.stub(),
       disconnect: sinon.stub()
     });
-    global.webkitAudioContext.prototype.sampleRate = 44100;
+    global.webkitAudioContext.prototype.sampleRate = 48000;
     requireRecorder();
   };
 
@@ -182,7 +182,7 @@ describe('Recorder', function(){
     expect(rec.config).to.have.property('numberOfChannels', 1);
     expect(rec.config).to.have.property('encoderSampleRate', 48000);
     expect(rec.config).to.have.property('encoderPath', 'encoderWorker.min.js');
-    expect(rec.config).to.have.property('streamPages', false);
+    expect(rec.config).to.have.property('streamPages', true);
     expect(rec.config).to.have.property('maxFramesPerPage', 40);
     expect(rec.config).to.have.property('mediaTrackConstraints', true);
     expect(rec.config).to.have.property('encoderApplication', 2049);
@@ -206,7 +206,7 @@ describe('Recorder', function(){
     expect(rec.config).to.have.property('numberOfChannels', 1);
     expect(rec.config).to.have.property('encoderSampleRate', 48000);
     expect(rec.config).to.have.property('encoderPath', 'encoderWorker.min.js');
-    expect(rec.config).to.have.property('streamPages', false);
+    expect(rec.config).to.have.property('streamPages', true);
     expect(rec.config).to.have.property('maxFramesPerPage', 40);
     expect(rec.config).to.have.property('mediaTrackConstraints', true);
     expect(rec.config).to.have.property('encoderApplication', 2049);
@@ -217,34 +217,34 @@ describe('Recorder', function(){
 
   it('should create an instance with config', function () {
     var rec = new Recorder({
-      bufferLength: 2048,
+      bufferLength: 4096,
       recordingGain: 0.5,
       monitorGain: 100,
       numberOfChannels: 2,
-      bitRate: 16000,
-      encoderSampleRate: 16000,
+      bitRate: 32000,
+      encoderSampleRate: 48000,
       encoderPath: "../dist/encoderWorker.min.js",
       streamPages: true,
       leaveStreamOpen: false,
       maxFramesPerPage: 1000,
-      encoderApplication: 2048,
-      encoderFrameSize: 40,
+      encoderApplication: 2049,
+      encoderFrameSize: 20,
       resampleQuality: 10,
       wavBitDepth: 32
     });
 
     expect(rec.state).to.equal('inactive');
-    expect(rec.config).to.have.property('bufferLength', 2048);
+    expect(rec.config).to.have.property('bufferLength', 4096);
     expect(rec.config).to.have.property('recordingGain', 0.5);
     expect(rec.config).to.have.property('monitorGain', 100);
     expect(rec.config).to.have.property('numberOfChannels', 2);
-    expect(rec.config).to.have.property('bitRate', 16000);
-    expect(rec.config).to.have.property('encoderSampleRate', 16000);
+    expect(rec.config).to.have.property('bitRate', 32000);
+    expect(rec.config).to.have.property('encoderSampleRate', 48000);
     expect(rec.config).to.have.property('encoderPath', '../dist/encoderWorker.min.js');
     expect(rec.config).to.have.property('streamPages', true);
     expect(rec.config).to.have.property('maxFramesPerPage', 1000);
-    expect(rec.config).to.have.property('encoderApplication', 2048);
-    expect(rec.config).to.have.property('encoderFrameSize', 40);
+    expect(rec.config).to.have.property('encoderApplication', 2049);
+    expect(rec.config).to.have.property('encoderFrameSize', 20);
     expect(rec.config).to.have.property('resampleQuality', 10);
     expect(rec.config).to.have.property('wavBitDepth', 32);
   });
@@ -261,8 +261,8 @@ describe('Recorder', function(){
       expect(rec.sourceNode.connect).to.have.been.calledTwice;
       expect(rec.encoder.postMessage).to.have.been.calledWithMatch({ 
         command: 'init',
-        wavSampleRate: 44100,
-        originalSampleRate: 44100
+        wavSampleRate: 48000,
+        originalSampleRate: 48000
       });
     });
   });
@@ -278,8 +278,8 @@ describe('Recorder', function(){
       expect(rec.sourceNode.connect).to.have.been.calledTwice;
       expect(rec.encoder.postMessage).to.have.been.calledWithMatch({ 
         command: 'init',
-        wavSampleRate: 44100,
-        originalSampleRate: 44100
+        wavSampleRate: 48000,
+        originalSampleRate: 48000
       });
     });
   });

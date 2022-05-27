@@ -23,7 +23,7 @@ var Recorder = function( config = {} ){
     numberOfChannels: 1,
     recordingGain: 1,
     resampleQuality: 3,
-    streamPages: false,
+    streamPages: true,
     wavBitDepth: 16,
     sourceNode: { context: null },
   }, config );
@@ -82,9 +82,10 @@ Recorder.prototype.close = function() {
 Recorder.prototype.encodeBuffers = function( inputBuffer ){
   if ( this.state === "recording" ) {
     var buffers = [];
-    for ( var i = 0; i < inputBuffer.numberOfChannels; i++ ) {
-      buffers[i] = inputBuffer.getChannelData(i);
-    }
+    //for ( var i = 0; i < inputBuffer.numberOfChannels; i++ ) {
+    //  buffers[i] = inputBuffer.getChannelData(i);
+    //}
+    buffers[0] = inputBuffer.getChannelData(0);   // 入力は1ch固定
 
     this.encoder.postMessage({
       command: "encode",
@@ -170,7 +171,7 @@ Recorder.prototype.initWorker = function(){
 
     this.encoder.postMessage( Object.assign({
       command: 'init',
-      originalSampleRate: this.audioContext.sampleRate,
+      originalSampleRate: 48000,
       wavSampleRate: this.audioContext.sampleRate
     }, config));
   });
@@ -293,6 +294,17 @@ Recorder.prototype.stop = function(){
     });
   }
   return Promise.resolve();
+};
+
+Recorder.prototype.sendEchoBuffer = function( id, buffer ) {
+  if (this.encoder)
+  {
+    this.encoder.postMessage({ 
+      command: 'sendEchoBuffer',
+      echoBufferId: id,
+      echoBuffer: buffer
+    });
+  }
 };
 
 Recorder.prototype.storePage = function( page ) {

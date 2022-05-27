@@ -10,13 +10,13 @@ global['onmessage'] = function( e ){
 
       case 'decode':
         if (decoder){
-          decoder.decode( e['data']['pages'] );
+          decoder.decode( e['data']['id'], e['data']['pages'] );
         }
         break;
 
       case 'done':
         if (decoder) {
-          decoder.sendLastBuffer();
+          decoder.sendLastBuffer( e['data']['id'] );
           global['close']();
         }
         break;
@@ -54,6 +54,7 @@ var OggOpusDecoder = function( config, Module ){
   this._free = Module._free;
   this._malloc = Module._malloc;
   this.HEAPU8 = Module.HEAPU8;
+  this.HEAP16 = Module.HEAP16;
   this.HEAP32 = Module.HEAP32;
   this.HEAPF32 = Module.HEAPF32;
 
@@ -61,16 +62,18 @@ var OggOpusDecoder = function( config, Module ){
 };
 
 
-OggOpusDecoder.prototype.decode = function( typedArray ) {
+OggOpusDecoder.prototype.decode = function( id, typedArray ) {
   var dataView = new DataView( typedArray.buffer );
   this.getPageBoundaries( dataView ).map( function( pageStart ) {
     var headerType = dataView.getUint8( pageStart + 5, true );
     var pageIndex = dataView.getUint32( pageStart + 18, true );
 
     // Beginning of stream
-    if ( headerType & 2 ) {
-      this.numberOfChannels = dataView.getUint8( pageStart + 37, true );
+    //if ( headerType & 2 ) {
+    if (!this.initialized) {
+      this.numberOfChannels = 1;//dataView.getUint8( pageStart + 37, true );
       this.init();
+      this.initialized = true;
     }
 
     // Decode page
@@ -85,18 +88,19 @@ OggOpusDecoder.prototype.decode = function( typedArray ) {
 
         if ( packetLength < 255 ) {
           var outputSampleLength = this._opus_decode_float( this.decoder, this.decoderBufferPointer, this.decoderBufferIndex, this.decoderOutputPointer, this.decoderOutputMaxLength, 0);
-          var resampledLength = Math.ceil( outputSampleLength * this.config.outputBufferSampleRate / this.config.decoderSampleRate );
           this.HEAP32[ this.decoderOutputLengthPointer >> 2 ] = outputSampleLength;
+          var resampledLength = Math.ceil( outputSampleLength * this.config.outputBufferSampleRate / this.config.decoderSampleRate );
           this.HEAP32[ this.resampleOutputLengthPointer >> 2 ] = resampledLength;
           this._speex_resampler_process_interleaved_float( this.resampler, this.decoderOutputPointer, this.decoderOutputLengthPointer, this.resampleOutputBufferPointer, this.resampleOutputLengthPointer );
-          this.sendToOutputBuffers( this.HEAPF32.subarray( this.resampleOutputBufferPointer >> 2, (this.resampleOutputBufferPointer >> 2) + resampledLength * this.numberOfChannels ) );
+          this.sendToOutputBuffers( id, this.HEAPF32.subarray( this.resampleOutputBufferPointer >> 2, (this.resampleOutputBufferPointer >> 2) + resampledLength * this.numberOfChannels ) );
+          //this.sendToOutputBuffers( id, this.HEAPF32.subarray( this.decoderOutputPointer >> 2, (this.decoderOutputPointer >> 2) + outputSampleLength * this.numberOfChannels ) );
           this.decoderBufferIndex = 0;
         }
       }
 
       // End of stream
       if ( headerType & 4 ) {
-        this.sendLastBuffer();
+        this.sendLastBuffer( id );
       }
     }
   }, this );
@@ -171,12 +175,12 @@ OggOpusDecoder.prototype.resetOutputBuffers = function(){
   }
 };
 
-OggOpusDecoder.prototype.sendLastBuffer = function(){
-  this.sendToOutputBuffers( new Float32Array( ( this.config.bufferLength - this.outputBufferIndex ) * this.numberOfChannels ) );
+OggOpusDecoder.prototype.sendLastBuffer = function(id){
+  this.sendToOutputBuffers( id, new Float32Array( ( this.config.bufferLength - this.outputBufferIndex ) * this.numberOfChannels ) );
   global['postMessage'](null);
 };
 
-OggOpusDecoder.prototype.sendToOutputBuffers = function( mergedBuffers ){
+OggOpusDecoder.prototype.sendToOutputBuffers = function( id, mergedBuffers ){
   var dataIndex = 0;
   var mergedBufferLength = mergedBuffers.length / this.numberOfChannels;
 
@@ -200,6 +204,7 @@ OggOpusDecoder.prototype.sendToOutputBuffers = function( mergedBuffers ){
     this.outputBufferIndex += amountToCopy;
 
     if ( this.outputBufferIndex == this.config.bufferLength ) {
+      this.outputBuffers.push(id);
       global['postMessage']( this.outputBuffers, this.outputBufferArrayBuffers );
       this.resetOutputBuffers();
     }

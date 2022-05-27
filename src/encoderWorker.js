@@ -1,5 +1,26 @@
 "use strict";
 
+function toInt16(n) {
+  var v = n < 0 ? n * 32768 : n * 32767;       // convert in range [-32768, 32767]
+  return Math.max(-32768, Math.min(32768, v)); // clamp
+}
+
+function toInt16Array(a) {
+  var i16 = [];
+  a.forEach(v => i16.push(toInt16(v)));
+  return i16;
+}
+
+function toFloat32(n) {
+  return n / (n >= 0 ? 32767 : 32768);
+}
+
+function toFloat32Array(a) {
+  var f32 = [];
+  a.forEach(v => f32.push(toFloat32(v)));
+  return f32;
+}
+
 const OggOpusEncoder = function( config, Module ){
 
   if ( !Module ) {
@@ -14,7 +35,7 @@ const OggOpusEncoder = function( config, Module ){
     encoderSampleRate: 48000, // Desired encoding sample rate. Audio will be resampled
     maxFramesPerPage: 40, // Tradeoff latency with overhead
     numberOfChannels: 1,
-    originalSampleRate: 44100,
+    originalSampleRate: 48000,
     resampleQuality: 3, // Value between 0 and 10 inclusive. 10 being highest quality.
     serial: Math.floor(Math.random() * 4294967296)
   }, config );
@@ -25,10 +46,19 @@ const OggOpusEncoder = function( config, Module ){
   this._speex_resampler_process_interleaved_float = Module._speex_resampler_process_interleaved_float;
   this._speex_resampler_init = Module._speex_resampler_init;
   this._speex_resampler_destroy = Module._speex_resampler_destroy;
+  this._speex_echo_state_init = Module._speex_echo_state_init;
+  this._speex_echo_ctl = Module._speex_echo_ctl;
+  this._speex_echo_cancellation = Module._speex_echo_cancellation;
+  this._speex_echo_state_destroy = Module._speex_echo_state_destroy;
+  this._speex_preprocess_state_init = Module._speex_preprocess_state_init;
+  this._speex_preprocess_ctl = Module._speex_preprocess_ctl;
+  this._speex_preprocess_run = Module._speex_preprocess_run;
+  this._speex_preprocess_state_destroy = Module._speex_preprocess_state_destroy;
   this._opus_encode_float = Module._opus_encode_float;
   this._free = Module._free;
   this._malloc = Module._malloc;
   this.HEAPU8 = Module.HEAPU8;
+  this.HEAP16 = Module.HEAP16;
   this.HEAP32 = Module.HEAP32;
   this.HEAPF32 = Module.HEAPF32;
 
@@ -40,9 +70,18 @@ const OggOpusEncoder = function( config, Module ){
   this.segmentTableIndex = 0;
   this.framesInPage = 0;
 
+  this.frameSize = 4096;
+
+  this.inputBuffer = [];
+  this.outputBuffer = [];
+  this.echoBuffer = {};
+  this.outputIndex = 0;
+
   this.initChecksumTable();
   this.initCodec();
   this.initResampler();
+
+  this.echoCancellerOpen( this.config.originalSampleRate, this.frameSize, this.frameSize * 8 );
 
   if ( this.config.numberOfChannels === 1 ) {
     this.interleave = function( buffers ) { return buffers[0]; };
@@ -55,6 +94,8 @@ OggOpusEncoder.prototype.encode = function( buffers ) {
   if ( !this.bufferLength ) {
     this.bufferLength = buffers[0].length;
     this.interleavedBuffers = new Float32Array( this.bufferLength * this.config.numberOfChannels );
+
+
   }
 
   var samples = this.interleave( buffers );
@@ -309,9 +350,98 @@ OggOpusEncoder.prototype.segmentPacket = function( packetLength ) {
   return exportPages;
 };
 
+OggOpusEncoder.prototype.echoCancellerOpen = function( sampleRate, bufSize, totalSize ) {
+  const SPEEX_ECHO_SET_SAMPLING_RATE = 24;
+  const SPEEX_PREPROCESS_SET_ECHO_STATE = 24;
+
+  //init
+  this.echoCancellerSampleRatePointer = this._malloc( 4 );
+  this.HEAP32[ this.echoCancellerSampleRatePointer >> 2 ] = sampleRate;
+
+  this.echoState = this._speex_echo_state_init(bufSize, totalSize);
+  this.preprocessState = this._speex_preprocess_state_init(bufSize, sampleRate);
+  this._speex_echo_ctl(this.echoState, SPEEX_ECHO_SET_SAMPLING_RATE, this.echoCancellerSampleRatePointer);
+  this._speex_preprocess_ctl(this.preprocessState, SPEEX_PREPROCESS_SET_ECHO_STATE, this.echoState);
+
+  this.input_frame = this._malloc(this.frameSize * 2);
+  this.echo_frame = this._malloc(this.frameSize * 2);
+  this.out_frame = this._malloc(this.frameSize * 2);
+};
+
+OggOpusEncoder.prototype.echoCancellerProcess = function( input_frame, echo_frame, output_frame ) {
+  //call echo cancellation
+  this._speex_echo_cancellation(this.echoState, input_frame, echo_frame, output_frame);
+  //preprocess output frame
+  this._speex_preprocess_run(this.preprocessState, output_frame);
+}
+
+OggOpusEncoder.prototype.echoCancellerClose = function() {
+  //close
+  this._speex_echo_state_destroy(this.echoState);
+  this._speex_preprocess_state_destroy(this.preprocessState);
+  this._free(this.echoCancellerSampleRatePointer);
+  this._free(this.input_frame);
+  this._free(this.echo_frame);
+  this._free(this.out_frame);
+}
+
+OggOpusEncoder.prototype.echoProcess = function(inputs) {
+  var inp = inputs[0][0].slice();
+  this.inputBuffer.push(inp);
+  var inputSize = inp.length;
+  if (this.outputBuffer.length == 0 || this.outputIndex >= this.outputBuffer.length) {
+    if (this.inputBuffer.length >= this.frameSize / inputSize) {
+      var buffer = [];
+      this.inputBuffer.forEach(b => {
+        b.forEach(v => {
+          buffer.push(v);
+        })
+      });
+      var inputInt16Array = new Int16Array(toInt16Array(buffer));
+      this.inputBuffer = [];
+      var echoTemp = [];
+      Object.keys(this.echoBuffer).forEach(id => {
+        if (this.echoBuffer[id].length > 0 && this.echoBuffer[id][0].length > 0) {
+          this.echoBuffer[id][0][0].forEach((data, i) => {
+            if (echoTemp.length <= i) {
+              echoTemp[i] = 0;
+            }
+            echoTemp[i] += data;
+          });
+          this.echoBuffer[id].shift();
+        }
+      });
+      if (echoTemp.length == 0) {
+        return new Float32Array;
+      }
+      echoTemp.forEach(data => data /= Object.keys(this.echoBuffer).length);
+      var echoInt16Array = new Int16Array(toInt16Array(echoTemp));
+      this.HEAP16.set(inputInt16Array, this.input_frame / 2);
+      this.HEAP16.set(echoInt16Array, this.echo_frame / 2);
+      this.echoCancellerProcess(this.input_frame, this.echo_frame, this.out_frame);
+      var outputInt16Array = this.HEAP16.slice(this.out_frame / 2, this.out_frame / 2 + this.frameSize);
+      this.outputBuffer = new Float32Array(toFloat32Array(outputInt16Array));
+      this.outputIndex = 0;
+    }
+  }
+  if (this.outputBuffer.length > this.outputIndex) {
+    var output_float = this.outputBuffer.slice(this.outputIndex, this.outputIndex +
+      inputSize);
+    this.outputIndex += inputSize;
+    return output_float;
+  }
+  return new Float32Array
+}
+
+OggOpusEncoder.prototype.echoPush = function( id, buffer ) {
+  if (!(id in this.echoBuffer)) {
+    this.echoBuffer[id] = [];
+  }
+  this.echoBuffer[id].push(buffer);
+}
+
 // Run in AudioWorkletGlobal scope
 if (typeof registerProcessor === 'function') {
-
   class EncoderWorklet extends AudioWorkletProcessor {
 
     constructor(){
@@ -324,6 +454,12 @@ if (typeof registerProcessor === 'function') {
             case 'getHeaderPages':
               this.postPage(this.encoder.generateIdPage());
               this.postPage(this.encoder.generateCommentPage());
+              break;
+
+            case 'sendEchoBuffer':
+              var id = data['echoBufferId'];
+              var buffer = data['echoBuffer'];
+              this.encoder.echoPush(id, buffer);
               break;
 
             case 'done':
@@ -360,9 +496,18 @@ if (typeof registerProcessor === 'function') {
       }
     }
 
-    process(inputs) {
+    process(inputs) {         // エコーキャンセル入力１（マイク側）
       if (this.encoder && inputs[0] && inputs[0].length && inputs[0][0] && inputs[0][0].length){
-        this.encoder.encode( inputs[0] ).forEach(pageData => this.postPage(pageData));
+        //console.log("mic input length:" + inputs[0][0].length);
+        var buffer = this.encoder.echoProcess(inputs);
+        if (buffer.length > 0) {
+          var buffers = [];
+          buffers[0] = buffer;
+          this.encoder.encode( buffers ).forEach(pageData => this.postPage(pageData));
+        } else {
+          // エコーキャンセルの初回バッファリング中はマイク入力をそのまま渡す
+          this.encoder.encode( inputs[0] ).forEach(pageData => this.postPage(pageData));
+        }
       }
       return this.continueProcess;
     }
